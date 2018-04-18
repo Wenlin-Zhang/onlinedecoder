@@ -1,4 +1,5 @@
 #include "onlinedecoder/audio-buffer-source.h"
+#include <chrono>
 
 namespace kaldi {
 
@@ -6,13 +7,9 @@ namespace kaldi {
 void AudioBufferSource::EnqueueBuffer(AudioBuffer* pBuffer)
 {
   // lock the mutex to guard the buffer queue for writting
-  KALDI_LOG << "12";
   std::lock_guard<std::mutex> mtx_locker(buffer_mtx_);
-  KALDI_LOG << "13";
   data_buffer_queue_.push(pBuffer);
-  KALDI_LOG << "14";
   buffer_cond_.notify_one();
-  KALDI_LOG << "15";
 }
 
 // get g buffer from the queue, if the queue is empty and is not ended, wait until a buffer is available
@@ -23,14 +20,16 @@ AudioBuffer* AudioBufferSource::DequeueBuffer()
   if (data_buffer_queue_.empty() && ended_ == true)
 	  return NULL;
   // wait until there is a buffer available or the queue is ended
-  buffer_cond_.wait(mtx_locker, [this] {return (!this->data_buffer_queue_.empty() || this->ended_); });
-  if (data_buffer_queue_.empty() && ended_ == true)
-	  return NULL;
+  buffer_cond_.wait_for(mtx_locker, std::chrono::seconds(2), [this] {return (!this->data_buffer_queue_.empty() || this->ended_); });
+  if (data_buffer_queue_.empty())
+  {
+    return NULL;
+  }
   else
   {
-	  AudioBuffer* pBuffer = data_buffer_queue_.front();
-	  data_buffer_queue_.pop();
-	  return pBuffer;
+    AudioBuffer* pBuffer = data_buffer_queue_.front();
+    data_buffer_queue_.pop();
+    return pBuffer;
   }
 }
 
@@ -49,11 +48,13 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, std::string& spk
 	cur_buffer_ = this->DequeueBuffer();
 	if (cur_buffer_ == NULL)
 	{
-		// if the returned buffer is empty, which means the audio buffer is ended
-		KALDI_ASSERT(ended_ == true);
+		// if the returned buffer is empty, which means the audio buffer is ended or the speaker data is ended
 		data->Resize(0);
 		spk = "";
-		return AudioState::AudioEnd;
+                if (ended_ == true)
+		  return AudioState::AudioEnd;
+                else
+                  return AudioState::SpkrEnd;
 	}
 	else
 	{
@@ -85,10 +86,12 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, std::string& spk
 	  cur_buffer_ = this->DequeueBuffer();
 	  if (cur_buffer_ == NULL)
 	  {
-		  KALDI_ASSERT(ended_ == true);
 		  data->Resize(i, kCopyData);
 		  spk = current_spkr;
-		  return AudioState::AudioEnd;
+                  if (ended_ == true)
+		    return AudioState::AudioEnd;
+                  else
+                    return AudioState::SpkrEnd;
 	  }
 	  else
 	  {
@@ -109,7 +112,6 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, std::string& spk
 
 // External Interface: put the data buffer in the queue is it is not ENDED!
 void AudioBufferSource::ReceiveData(AudioBuffer* pBuffer){
-  KALDI_LOG << "11";
   if (ended_ == false)
 	  this->EnqueueBuffer(pBuffer);
 }
@@ -133,8 +135,8 @@ AudioBufferSource::~AudioBufferSource(){
 	  SetEnded(true);
   // if the queue is not empty, give 10 seconds to free
   // if after 10 seconds the queue is still nonempty, there might be an error occured
-  if (!data_buffer_queue_.empty())
-	  sleep(10);
+  //if (!data_buffer_queue_.empty())
+  //	  sleep(10);
   if (!cur_buffer_) {
 	  delete cur_buffer_->pData_;
 	  delete cur_buffer_;
