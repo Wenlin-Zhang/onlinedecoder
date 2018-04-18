@@ -5,6 +5,8 @@
 #include <string>
 #include <sstream>
 
+using namespace kaldi;
+
 static std::map<int, OnlineDecoder*> g_engine_map;
 
 static std::string error_message;
@@ -26,7 +28,7 @@ static OnlineDecoder* GetEngine(int id)
 		return it->second;
 }
 
-int CreateRecognizer(const std::string& conf_rxfilename)
+int CreateRecognizer(const char* conf_rxfilename)
 {
 	OnlineDecoder* pDecoder = new OnlineDecoder(conf_rxfilename);
 	int id = GenerateID();
@@ -39,7 +41,7 @@ ReturnStatus StartRecognizer(int engineID)
 	OnlineDecoder* pDecoder = GetEngine(engineID);
 	if (pDecoder != NULL)
 	{
-		pRecogObj->StartDecoding();
+		pDecoder->StartDecoding();
 		return SUCCEED;
 	}
 	else
@@ -47,6 +49,7 @@ ReturnStatus StartRecognizer(int engineID)
 		std::stringstream ss;
 		ss << "No engine with id - " << engineID;
 		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
 	}
 }
 
@@ -63,6 +66,7 @@ ReturnStatus SuspendRecognizer(int engineID)
 		std::stringstream ss;
 		ss << "No engine with id - " << engineID;
 		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
 	}
 }
 
@@ -79,6 +83,7 @@ ReturnStatus ResumeRecognizer(int engineID)
 		std::stringstream ss;
 		ss << "No engine with id - " << engineID;
 		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
 	}
 }
 
@@ -95,6 +100,7 @@ ReturnStatus StopRecognizer(int engineID)
 		std::stringstream ss;
 		ss << "No engine with id - " << engineID;
 		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
 	}
 }
 
@@ -111,6 +117,7 @@ ReturnStatus WaitForRecogStop(int engineID)
 		std::stringstream ss;
 		ss << "No engine with id - " << engineID;
 		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
 	}
 }
 
@@ -128,21 +135,35 @@ ReturnStatus FreeRecognizer(int engineID)
 		std::stringstream ss;
 		ss << "No engine with id - " << engineID;
 		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
 	}
 }
 
-ReturnStatus AddBuffer(int engineID, string spkId, const short* pData, int size)
+ReturnStatus AddBuffer(int engineID, const char* spkId, const short* pData, int size)
 {
+  KALDI_LOG << "21";
 	OnlineDecoder* pDecoder = GetEngine(engineID);
+	KALDI_LOG << "22";
 	if (pDecoder != NULL)
 	{
-		AudioBufferSource::AudioBuffer* pBuffer = new AudioBufferSource::AudioBuffer();
+	  KALDI_LOG << "23";
+		AudioBuffer* pBuffer;
+		KALDI_LOG << "23";
+		KALDI_LOG << "Before AudioBuffer create.";
+		AudioBuffer ab;
+		KALDI_LOG << "AudioBuffer create.";
+		pBuffer = new AudioBuffer();
+		KALDI_LOG << "24";
 		pBuffer->spkr_ = spkId;
 		pBuffer->size_ = size;
-		pBuffer->pData_ = new AudioBufferSource::SampleType[size];
+		KALDI_LOG << "25";
+		pBuffer->pData_ = new SampleType[size];
+		KALDI_LOG << "26";
 		for (int i = 0; i < size; ++i)
 			pBuffer->pData_[i] = pData[i];
-		pDecoder->AddBuffer(pBuffer);
+	  
+		pDecoder->ReceiveData(pBuffer);
+		
 		return SUCCEED;
 	}
 	else
@@ -150,11 +171,12 @@ ReturnStatus AddBuffer(int engineID, string spkId, const short* pData, int size)
 		std::stringstream ss;
 		ss << "No engine with id - " << engineID;
 		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
 	}
 	
 }
 
-void AddCallback(int engineID, DecoderSignal signal, DecoderSignalCallback callback)
+ReturnStatus AddCallback(int engineID, DecoderSignal signal, DecoderSignalCallback callback)
 {
 	OnlineDecoder* pDecoder = GetEngine(engineID);
 	if (pDecoder != NULL)
@@ -167,6 +189,7 @@ void AddCallback(int engineID, DecoderSignal signal, DecoderSignalCallback callb
 		std::stringstream ss;
 		ss << "No engine with id - " << engineID;
 		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
 	}
 	
 }
