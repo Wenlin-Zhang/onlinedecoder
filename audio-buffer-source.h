@@ -11,26 +11,29 @@
 
 namespace kaldi {
 
+typedef kaldi::int16 SampleType;  // hardcoded 16-bit audio
+
+// Audio State enum
+enum AudioState {
+ SpkrContinue,
+ SpkrEnd,
+ AudioEnd
+};
+
+// Buffer definition
+struct AudioBuffer {
+ std::string spkr_;
+ SampleType* pData_;
+ int size_;
+ 
+ AudioBuffer(): pData_(NULL), size_(0) {}
+};
+  
 // AudioBufferSource implementation using a queue of Gst Buffers
 // Reference: gst_audio_source
 class AudioBufferSource {
  public:
-  typedef kaldi::int16 SampleType;  // hardcoded 16-bit audio
-
-  // Audio State enum
-  enum AudioState {
-	  SpkrContinue,
-	  SpkrEnd,
-	  AudioEnd
-  };
-
-  // Buffer definition
-  struct AudioBuffer {
-	  std::string spkr_;
-	  SampleType* pData_;
-	  int size_;
-  };
-
+  
   AudioBufferSource(): ended_(false), cur_buffer_(NULL), pos_in_current_buf_(0) {}
 
   // read data from audiobuffer
@@ -38,7 +41,7 @@ class AudioBufferSource {
   //    spkr_continue: readed data block is nonempty, and there may be more data for the same speaker
   //    spkr_end: this is the end of the current speaker audio
   //    audio_end: the audio buffer is end
-  AudioState ReadData(Vector<BaseFloat>* data, string& spk);
+  AudioState ReadData(Vector<BaseFloat>* data, std::string& spk);
 
   void ReceiveData(AudioBuffer* pBuffer);
 

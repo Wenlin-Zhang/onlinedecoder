@@ -188,11 +188,11 @@ public:
     typedef kaldi::int64 int64;
 
 	enum DecoderState {
-		InitDecoding,
-		OnDecoding,
-		SuspendDecoding,
-		StopDecoding,
-		EndDecoding
+		State_InitDecoding,
+		State_OnDecoding,
+		State_SuspendDecoding,
+		State_StopDecoding,
+		State_EndDecoding
 	};
 	
 	explicit OnlineDecoder(const string& configFilePath);
@@ -210,7 +210,7 @@ public:
 	bool LoadModel();
 	void Finalize();
 	
-	void ReceiveData(AudioBufferSource::AudioBuffer* pBuffer ) {audio_source_->ReceiveData(pBuffer);};
+	void ReceiveData(AudioBuffer* pBuffer ) {audio_source_->ReceiveData(pBuffer);};
 
 	// Add callback functions
 	void AddCallBack(DecoderSignal signal, DecoderSignalCallback onSignal);
@@ -242,7 +242,7 @@ protected:
 	void GeneratePartialResult(const Lattice lat);
 	
 	// Decode for a segment/utterance
-	void DecodeSegment(bool &more_data, int32 chunk_length, BaseFloat traceback_period_secs);
+	void DecodeSegment(AudioState &audio_state, int32 chunk_length, BaseFloat traceback_period_secs);
 	
 protected:
 	std::vector<PhoneAlignmentInfo> GetPhoneAlignment(const std::vector<int32>& alignment, const CompactLattice &clat);

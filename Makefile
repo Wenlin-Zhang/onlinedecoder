@@ -30,7 +30,7 @@ EXTRA_LDLIBS += -lkaldi-online2 -lkaldi-lat -lkaldi-decoder -lkaldi-feat -lkaldi
  -lkaldi-tree -lkaldi-matrix  -lkaldi-util -lkaldi-base -lkaldi-lm  \
  -lkaldi-nnet2 -lkaldi-nnet3 -lkaldi-cudamatrix -lkaldi-ivector -lkaldi-fstext -lkaldi-chain
 
-OBJFILES = audio-buffer-source.o online-decoder.o 
+OBJFILES = audio-buffer-source.o online-decoder.o speech-recognition-engine.o
 
 LIBNAME=onlinedecoder
 

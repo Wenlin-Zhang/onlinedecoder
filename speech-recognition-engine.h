@@ -17,12 +17,12 @@ typedef void(*DecoderSignalCallback)(const char* pszResults);
 enum ReturnStatus
 {
 	ERROR_ENGINE_NOT_FOUND,
-	ERROR_UNKNOWN
+	ERROR_UNKNOWN,
 	SUCCEED,
 };
 
 // -1 for fail, >0 for a valid recognizer id
-int CreateRecognizer(const std::string& conf_rxfilename);
+int CreateRecognizer(const char* conf_rxfilename);
 
 // return the error message if an error have just occured
 const char* GetLastErrMsg();
@@ -39,7 +39,7 @@ ReturnStatus WaitForRecogStop(int engineID);
 
 ReturnStatus FreeRecognizer(int engineID);
 
-ReturnStatus AddBuffer(int engineID, string spkId, const short* pData, int size);
+ReturnStatus AddBuffer(int engineID, const char* spkId, const short* pData, int size);
 
 ReturnStatus AddCallback(int engineID, DecoderSignal signal, DecoderSignalCallback callback);
 

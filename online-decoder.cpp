@@ -56,7 +56,7 @@ OnlineDecoder::OnlineDecoder(const string& configFilePath)
 	// load models from files
 	this->LoadModel();
 
-	state_ = DecoderState::InitDecoding;
+	state_ = DecoderState::State_InitDecoding;
 }
 
 // Reference: gst_kaldinnet2onlinedecoder_allocate
@@ -489,7 +489,7 @@ std::string OnlineDecoder::FullFinalResult2Json(
 
 	json_t *root = json_object();
 	json_t *result_json_object = json_object();
-	json_object_set_new( root, "status", json_integer(0));
+	//json_object_set_new( root, "status", json_integer(0));
 	json_object_set_new(root, "speaker", json_string(full_final_result.spkr.c_str()));
 	json_object_set_new( root, "result", result_json_object);
 	json_object_set_new( result_json_object, "final", json_true());
@@ -594,7 +594,7 @@ void OnlineDecoder::GenerateFinalResult(
 			// Invoke the FINAL_RESULT_SIGNAL
 			this->InvokeCallBack(FINAL_RESULT_SIGNAL, best_transcript.c_str());
 			// Invoke the FULL_FINAL_RESULT_SIGNAL
-			std::string full_final_result_as_json =	this->FullFinalResult2Json(full_final_result, spkr);
+			std::string full_final_result_as_json =	this->FullFinalResult2Json(full_final_result);
 			KALDI_LOG << "Final JSON: " << full_final_result_as_json.c_str();
 			this->InvokeCallBack(FULL_FINAL_RESULT_SIGNAL, full_final_result_as_json.c_str());
 		}
@@ -616,7 +616,7 @@ void OnlineDecoder::GeneratePartialResult(const Lattice lat) {
 }
 
 // Reference: gst_kaldinnet2onlinedecoder_nnet3_unthreaded_decode_segment
-void OnlineDecoder::DecodeSegment(AudioBufferSource::AudioState &audio_state, int32 chunk_length, BaseFloat traceback_period_secs) {
+void OnlineDecoder::DecodeSegment(AudioState &audio_state, int32 chunk_length, BaseFloat traceback_period_secs) {
   OnlineNnet2FeaturePipeline feature_pipeline(*(this->feature_info_));
   
   feature_pipeline.SetAdaptationState(*(this->adaptation_state_));
@@ -644,10 +644,10 @@ void OnlineDecoder::DecodeSegment(AudioBufferSource::AudioState &audio_state, in
 	  if (wave_part.Dim() == 0)
 	  {
 		  // if no data is read, that audio state should be SpkrEnd or AudioEnd
-		  KALDI_ASSERT(audio_state == AudioBufferSource::AudioState::SpkrEnd || audio_state == AudioBufferSource::AudioState::AudioEnd);
+		  KALDI_ASSERT(audio_state == AudioState::SpkrEnd || audio_state == AudioState::AudioEnd);
 		  // skip starting empty speaker end change, 
 		  // this occurs when last segment is the end of an old spk and we start a new spk in this segment
-		  if (num_seconds_decoded == 0 && audio_state == AudioBufferSource::AudioState::SpkrEnd)
+		  if (num_seconds_decoded == 0 && audio_state == AudioState::SpkrEnd)
 			  continue;
 		  else
 			  break; // otherwise, exit and end this segment decoding
@@ -657,7 +657,7 @@ void OnlineDecoder::DecodeSegment(AudioBufferSource::AudioState &audio_state, in
 	  feature_pipeline.AcceptWaveform(this->sample_rate_, wave_part);
     
 	  // if the audio state is SpkrEnd or AudioEnd, it means an end of the current segment, so let's finish feature input
-      if (audio_state == AudioBufferSource::AudioState::SpkrEnd || audio_state == AudioBufferSource::AudioState::AudioEnd) {
+      if (audio_state == AudioState::SpkrEnd || audio_state == AudioState::AudioEnd) {
         feature_pipeline.InputFinished();
       }
 
@@ -677,11 +677,11 @@ void OnlineDecoder::DecodeSegment(AudioBufferSource::AudioState &audio_state, in
     KALDI_LOG << "Total amount of audio processed: " << this->total_time_decoded_ << " seconds";
 
 	// if this is the end of a speaker or audio, exit decoding current segment
-    if (audio_state == SpkrEnd) {
+    if (audio_state == AudioState::SpkrEnd) {
 		KALDI_LOG << "Speaker change detected!";
       break;
     }
-	if (audio_state == AudioEnd) {
+	if (audio_state == AudioState::AudioEnd) {
 		KALDI_LOG << "Audio end detected!";
 		break;
 	}
@@ -730,23 +730,23 @@ void OnlineDecoder::ChangeState(DecoderState newState)
 	std::lock_guard<std::mutex> state_locker(state_mtx_);
 	switch (newState)
 	{
-	case DecoderState::InitDecoding:
-		state_ = DecoderState::InitDecoding;
+	case DecoderState::State_InitDecoding:
+		state_ = DecoderState::State_InitDecoding;
 		break;
-	case DecoderState::OnDecoding:
-		KALDI_ASSERT(state_ == DecoderState::InitDecoding || state_ == DecoderState::SuspendDecoding);
-		state_ = DecoderState::OnDecoding;
+	case DecoderState::State_OnDecoding:
+		KALDI_ASSERT(state_ == DecoderState::State_InitDecoding || state_ == DecoderState::State_SuspendDecoding);
+		state_ = DecoderState::State_OnDecoding;
 		break;
-	case DecoderState::SuspendDecoding:
-		KALDI_ASSERT(state_ == DecoderState::OnDecoding);
-		state_ = DecoderState::SuspendDecoding;
+	case DecoderState::State_SuspendDecoding:
+		KALDI_ASSERT(state_ == DecoderState::State_OnDecoding);
+		state_ = DecoderState::State_SuspendDecoding;
 		break;
-	case DecoderState::StopDecoding:
-		KALDI_ASSERT(state_ != DecoderState::StopDecoding);
-		state_ = DecoderState::StopDecoding;
+	case DecoderState::State_StopDecoding:
+		KALDI_ASSERT(state_ != DecoderState::State_StopDecoding);
+		state_ = DecoderState::State_StopDecoding;
 		break;
-	case DecoderState::EndDecoding:
-		state_ = DecoderState::EndDecoding;
+	case DecoderState::State_EndDecoding:
+		state_ = DecoderState::State_EndDecoding;
 		break;
 	default:
 		KALDI_ERR << "Invalid Decoder State!";
@@ -756,26 +756,26 @@ void OnlineDecoder::ChangeState(DecoderState newState)
 void OnlineDecoder::StartDecoding()
 {
 	this->audio_source_->SetEnded(false);
-	this->ChangeState(DecoderState::OnDecoding);
-	decode_thread_ = new std::thread(DecodeLoop);
+	this->ChangeState(DecoderState::State_OnDecoding);
+	decode_thread_ = new std::thread(&OnlineDecoder::DecodeLoop, this);
 }
 
 void OnlineDecoder::SuspendDecoding() {
 	// set the audio source to ended to stop receive more data
 	this->audio_source_->SetEnded(true);
-	this->ChangeState(DecoderState::SuspendDecoding);
+	this->ChangeState(DecoderState::State_SuspendDecoding);
 }
 
 void OnlineDecoder::ResumeDecoding() {
 	// set the audio source to start receive more data
 	this->audio_source_->SetEnded(false);
-	this->ChangeState(DecoderState::OnDecoding);
+	this->ChangeState(DecoderState::State_OnDecoding);
 }
 
 void OnlineDecoder::StopDecoding() {
 	// set the audio source to ended to stop receive more data
 	this->audio_source_->SetEnded(true);
-	this->ChangeState(DecoderState::StopDecoding);
+	this->ChangeState(DecoderState::State_StopDecoding);
 }
 
 void OnlineDecoder::WaitForEndOfDecoding()
@@ -798,28 +798,28 @@ void OnlineDecoder::DecodeLoop() {
 	this->segment_start_time_ = 0.0;
 	this->total_time_decoded_ = 0.0;
 	
-	AudioBufferSource::AudioState audio_state = AudioBufferSource::AudioState::SpkrContinue;
+	AudioState audio_state = AudioState::SpkrContinue;
 	while (true) {
 		// check state for stop and suspend
 		{
 			std::unique_lock<std::mutex> state_locker(state_mtx_);
-			if (state_ == DecoderState::StopDecoding)
+			if (state_ == DecoderState::State_StopDecoding)
 				break;
-			if (state_ == DecoderState::SuppendDecoding)
+			if (state_ == DecoderState::State_SuspendDecoding)
 			{
 				// unlock the state locker to allow change decode state while processin remaining data
 				state_locker.unlock();
 				// Process remaining data in the audio buffer
-				while (audio_state != AudioBufferSource::AudioState::AudioEnd)
+				while (audio_state != AudioState::AudioEnd)
 				{
 					this->DecodeSegment(audio_state, chunk_length, traceback_period_secs);
 					this->segment_start_time_ = this->total_time_decoded_;
 				}
 				state_locker.lock();
 				// wait for suspend state to change
-				state_cond_.wait(state_locker, [] {return state_ != DecoderState::SuppendDecoding; });
+				state_cond_.wait(state_locker, [this] {return this->state_ != DecoderState::State_SuspendDecoding; });
 				// if changed to stop state, then stop decoding
-				if (state_ == DecoderState::StopDecoding)
+				if (state_ == DecoderState::State_StopDecoding)
 					break;
 			}
 		}
@@ -828,9 +828,9 @@ void OnlineDecoder::DecodeLoop() {
 	}
 
 	// Process remaining data in the audio buffer
-	while (audio_state != AudioBufferSource::AudioState::AudioEnd)
+	while (audio_state != AudioState::AudioEnd)
 	{
-		this->DecodeSegment(more_data, chunk_length, traceback_period_secs);
+		this->DecodeSegment(audio_state, chunk_length, traceback_period_secs);
 		this->segment_start_time_ = this->total_time_decoded_;
 	}
 
@@ -845,7 +845,7 @@ void OnlineDecoder::DecodeLoop() {
 
 // Reference: gst_kaldinnet2onlinedecoder_finalize
 OnlineDecoder::~OnlineDecoder() {
-	KALDI_ASSERT(state_ == DecoderState::InitDecoding || DecoderState::EndDecoding);
+	KALDI_ASSERT(state_ == DecoderState::State_InitDecoding || DecoderState::State_EndDecoding);
 	delete this->endpoint_config_;
 	delete this->feature_config_;
 	//delete this->nnet2_decoding_config_;

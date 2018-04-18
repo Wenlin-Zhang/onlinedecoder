@@ -6,9 +6,13 @@ namespace kaldi {
 void AudioBufferSource::EnqueueBuffer(AudioBuffer* pBuffer)
 {
   // lock the mutex to guard the buffer queue for writting
+  KALDI_LOG << "12";
   std::lock_guard<std::mutex> mtx_locker(buffer_mtx_);
+  KALDI_LOG << "13";
   data_buffer_queue_.push(pBuffer);
+  KALDI_LOG << "14";
   buffer_cond_.notify_one();
+  KALDI_LOG << "15";
 }
 
 // get g buffer from the queue, if the queue is empty and is not ended, wait until a buffer is available
@@ -19,7 +23,7 @@ AudioBuffer* AudioBufferSource::DequeueBuffer()
   if (data_buffer_queue_.empty() && ended_ == true)
 	  return NULL;
   // wait until there is a buffer available or the queue is ended
-  buffer_cond_.wait(mtx_locker, [] {return (!data_buffer_queue_.empty() || ended_); });
+  buffer_cond_.wait(mtx_locker, [this] {return (!this->data_buffer_queue_.empty() || this->ended_); });
   if (data_buffer_queue_.empty() && ended_ == true)
 	  return NULL;
   else
@@ -30,8 +34,8 @@ AudioBuffer* AudioBufferSource::DequeueBuffer()
   }
 }
 
-AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, string& spk){
-  string current_spkr = "";
+AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, std::string& spk){
+  std::string current_spkr = "";
   if (cur_buffer_ != NULL)
   {
 	  current_spkr = cur_buffer_->spkr_;
@@ -48,7 +52,7 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, string& spk){
 		// if the returned buffer is empty, which means the audio buffer is ended
 		KALDI_ASSERT(ended_ == true);
 		data->Resize(0);
-		spkr = "";
+		spk = "";
 		return AudioState::AudioEnd;
 	}
 	else
@@ -59,7 +63,7 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, string& spk){
 	  if (current_spkr != "" && current_spkr != cur_buffer_->spkr_)
 	  {
 		  data->Resize(0);
-		  spkr = current_spkr;
+		  spk = current_spkr;
 		  return AudioState::SpkrEnd;
 	  }
 	}
@@ -105,8 +109,9 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, string& spk){
 
 // External Interface: put the data buffer in the queue is it is not ENDED!
 void AudioBufferSource::ReceiveData(AudioBuffer* pBuffer){
+  KALDI_LOG << "11";
   if (ended_ == false)
-	this->EnqueueBuffer(pBuffer);
+	  this->EnqueueBuffer(pBuffer);
 }
 
 void AudioBufferSource::SetEnded(bool ended) {
