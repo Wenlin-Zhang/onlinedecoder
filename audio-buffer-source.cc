@@ -1,3 +1,4 @@
+// 张; 杨
 #include "onlinedecoder/audio-buffer-source.h"
 #include <chrono>
 
@@ -45,29 +46,29 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, std::string& spk
 		  delete cur_buffer_->pData_;
 		  delete cur_buffer_;
 	  }
-	cur_buffer_ = this->DequeueBuffer();
-	if (cur_buffer_ == NULL)
-	{
-		// if the returned buffer is empty, which means the audio buffer is ended or the speaker data is ended
-		data->Resize(0);
-		spk = "";
-                if (ended_ == true)
-		  return AudioState::AudioEnd;
-                else
-                  return AudioState::SpkrEnd;
-	}
-	else
-	{
-	  pos_in_current_buf_ = 0;
-	  // if the spkr id of the new buffer and last buffer are different, 
-	  // it means the end of last speaker is reached
-	  if (current_spkr != "" && current_spkr != cur_buffer_->spkr_)
+	  cur_buffer_ = this->DequeueBuffer();
+	  if (cur_buffer_ == NULL)
 	  {
+		  // if the returned buffer is empty, which means the audio buffer is ended or the speaker data is ended
 		  data->Resize(0);
-		  spk = current_spkr;
-		  return AudioState::SpkrEnd;
+		  spk = "";
+      if (ended_ == true)
+		    return AudioState::AudioEnd;
+      else
+        return AudioState::SpkrEnd;
 	  }
-	}
+	  else
+	  {
+	    pos_in_current_buf_ = 0;
+	    // if the spkr id of the new buffer and last buffer are different, 
+	    // it means the end of last speaker is reached
+	    if (current_spkr != "" && current_spkr != cur_buffer_->spkr_)
+	    {
+		    data->Resize(0);
+		    spk = current_spkr;
+		    return AudioState::SpkrEnd;
+	    }
+	  }
   }
 
   // set the current spkr id
@@ -80,29 +81,29 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, std::string& spk
     (*data)(i) = static_cast<BaseFloat>(cur_buffer_->pData_[pos_in_current_buf_]);
     pos_in_current_buf_++;
     if (pos_in_current_buf_ >= cur_buffer_->size_) {
-	  delete cur_buffer_->pData_;
-	  delete cur_buffer_;
+	    delete cur_buffer_->pData_;
+	    delete cur_buffer_;
       cur_buffer_ = NULL;
-	  cur_buffer_ = this->DequeueBuffer();
-	  if (cur_buffer_ == NULL)
-	  {
-		  data->Resize(i, kCopyData);
-		  spk = current_spkr;
-                  if (ended_ == true)
-		    return AudioState::AudioEnd;
-                  else
-                    return AudioState::SpkrEnd;
-	  }
-	  else
-	  {
-		  pos_in_current_buf_ = 0;
-		  if (current_spkr != cur_buffer_->spkr_)
-		  {
-			  data->Resize(i, kCopyData);
-			  spk = current_spkr;
-			  return AudioState::SpkrEnd;
-		  }
-	  }
+	    cur_buffer_ = this->DequeueBuffer();
+	    if (cur_buffer_ == NULL)
+	    {
+		    data->Resize(i, kCopyData);
+		    spk = current_spkr;
+        if (ended_ == true)
+		      return AudioState::AudioEnd;
+        else
+          return AudioState::SpkrEnd;
+	    }
+	    else
+	    {
+		    pos_in_current_buf_ = 0;
+		    if (current_spkr != cur_buffer_->spkr_)
+		    {
+			    data->Resize(i, kCopyData);
+			    spk = current_spkr;
+			    return AudioState::SpkrEnd;
+		    }
+	    }
     }
   }
 
@@ -124,7 +125,7 @@ void AudioBufferSource::SetEnded(bool ended) {
 		ended_ = ended;
 		buffer_cond_.notify_one();
 		return;
-    }
+  }
 	ended_ = ended;
 }
 
@@ -140,7 +141,7 @@ AudioBufferSource::~AudioBufferSource(){
   if (!cur_buffer_) {
 	  delete cur_buffer_->pData_;
 	  delete cur_buffer_;
-      cur_buffer_ = NULL;
+    cur_buffer_ = NULL;
   }
 
   while(data_buffer_queue_.size() > 0)

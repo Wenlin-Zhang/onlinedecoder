@@ -1,3 +1,4 @@
+// 张; 杨
 #include "onlinedecoder/online-decoder.h"
 #include "fst/script/project.h"
 
@@ -509,7 +510,7 @@ std::string OnlineDecoder::FullFinalResult2Json(
 								json_string(this->WordsInHyp2String(nbest_result.words).c_str()));
 			json_object_set_new(nbest_result_json_object, "likelihood",  json_real(nbest_result.likelihood));
 			json_array_append( nbest_json_arr, nbest_result_json_object );
-			if (nbest_result.phone_alignment.size() > 0) {
+			/*if (nbest_result.phone_alignment.size() > 0) {
 				if (strcmp(this->opts_->phone_syms_filename_.c_str(), "") == 0) {
 					KALDI_ERR << "Phoneme symbol table filename (phone-syms) must be set to output phone alignment.";
 				} else if (this->phone_syms_ == NULL) {
@@ -550,7 +551,7 @@ std::string OnlineDecoder::FullFinalResult2Json(
 					json_array_append(word_alignment_json_arr, alignment_info_json_object);
 				}
 				json_object_set_new(nbest_result_json_object, "word-alignment", word_alignment_json_arr);
-			}
+			}*/
 
 		}
 
@@ -657,9 +658,9 @@ void OnlineDecoder::DecodeSegment(AudioState &audio_state, int32 chunk_length, B
 	  feature_pipeline.AcceptWaveform(this->sample_rate_, wave_part);
     
 	  // if the audio state is SpkrEnd or AudioEnd, it means an end of the current segment, so let's finish feature input
-      if (audio_state == AudioState::SpkrEnd || audio_state == AudioState::AudioEnd) {
-        feature_pipeline.InputFinished();
-      }
+    if (audio_state == AudioState::SpkrEnd || audio_state == AudioState::AudioEnd) {
+      feature_pipeline.InputFinished();
+    }
 
     if (silence_weighting.Active() && 
         feature_pipeline.IvectorFeature() != NULL) {
@@ -676,16 +677,16 @@ void OnlineDecoder::DecodeSegment(AudioState &audio_state, int32 chunk_length, B
     this->total_time_decoded_ += num_seconds;
     KALDI_LOG << "Total amount of audio processed: " << this->total_time_decoded_ << " seconds";
 
-	// if this is the end of a speaker or audio, exit decoding current segment
+	  // if this is the end of a speaker or audio, exit decoding current segment
     if (audio_state == AudioState::SpkrEnd) {
-		KALDI_LOG << "Speaker change detected!";
+		  KALDI_LOG << "Speaker change detected!";
       break;
     }
-	if (audio_state == AudioState::AudioEnd) {
-		KALDI_LOG << "Audio end detected!";
-		break;
-	}
-	// if an end pointing is detected, also exit decoding current segment
+	  if (audio_state == AudioState::AudioEnd) {
+		  KALDI_LOG << "Audio end detected!";
+		  break;
+	  }
+	  // if an end pointing is detected, also exit decoding current segment
     if (this->opts_->do_endpointing_
         && (decoder.NumFramesDecoded() > 0)
         && decoder.EndpointDetected(*(this->endpoint_config_))) {
@@ -751,6 +752,7 @@ void OnlineDecoder::ChangeState(DecoderState newState)
 	default:
 		KALDI_ERR << "Invalid Decoder State!";
 	}
+	state_cond_.notify_one();
 }
 
 void OnlineDecoder::StartDecoding()
@@ -762,12 +764,14 @@ void OnlineDecoder::StartDecoding()
 
 void OnlineDecoder::SuspendDecoding() {
 	// set the audio source to ended to stop receive more data
+	KALDI_LOG << "Suspend Processing";
 	this->audio_source_->SetEnded(true);
 	this->ChangeState(DecoderState::State_SuspendDecoding);
 }
 
 void OnlineDecoder::ResumeDecoding() {
 	// set the audio source to start receive more data
+	KALDI_LOG << "Resume Processing";
 	this->audio_source_->SetEnded(false);
 	this->ChangeState(DecoderState::State_OnDecoding);
 }
@@ -807,6 +811,7 @@ void OnlineDecoder::DecodeLoop() {
 				break;
 			if (state_ == DecoderState::State_SuspendDecoding)
 			{
+			  KALDI_LOG << "Suspend Recognizer";
 				// unlock the state locker to allow change decode state while processin remaining data
 				state_locker.unlock();
 				// Process remaining data in the audio buffer
@@ -816,8 +821,11 @@ void OnlineDecoder::DecodeLoop() {
 					this->segment_start_time_ = this->total_time_decoded_;
 				}
 				state_locker.lock();
+				
 				// wait for suspend state to change
+				KALDI_LOG << "Waiting State Change";
 				state_cond_.wait(state_locker, [this] {return this->state_ != DecoderState::State_SuspendDecoding; });
+				KALDI_LOG << "State Changed";
 				// if changed to stop state, then stop decoding
 				if (state_ == DecoderState::State_StopDecoding)
 					break;

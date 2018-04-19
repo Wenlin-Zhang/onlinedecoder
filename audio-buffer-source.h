@@ -1,3 +1,4 @@
+// 张; 杨
 #ifndef KALDI_AUDIO_BUFFER_SOURCE_H_
 #define KALDI_AUDIO_BUFFER_SOURCE_H_
 

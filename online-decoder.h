@@ -1,3 +1,4 @@
+// 张; 杨
 #ifndef KALDI_ONLINE_DECODER_H_
 #define KALDI_ONLINE_DECODER_H_
 

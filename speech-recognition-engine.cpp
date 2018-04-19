@@ -1,3 +1,4 @@
+// 张; 杨
 #include "speech-recognition-engine.h"
 #include "onlinedecoder/audio-buffer-source.h"
 #include "onlinedecoder/online-decoder.h"
@@ -141,24 +142,16 @@ ReturnStatus FreeRecognizer(int engineID)
 
 ReturnStatus AddBuffer(int engineID, const char* spkId, const short* pData, int size)
 {
-  KALDI_LOG << "21";
 	OnlineDecoder* pDecoder = GetEngine(engineID);
-	KALDI_LOG << "22";
+
 	if (pDecoder != NULL)
 	{
-	  KALDI_LOG << "23";
-		AudioBuffer* pBuffer;
-		KALDI_LOG << "23";
-		KALDI_LOG << "Before AudioBuffer create.";
-		AudioBuffer ab;
-		KALDI_LOG << "AudioBuffer create.";
-		pBuffer = new AudioBuffer();
-		KALDI_LOG << "24";
+		AudioBuffer* pBuffer = new AudioBuffer();
+
 		pBuffer->spkr_ = spkId;
 		pBuffer->size_ = size;
-		KALDI_LOG << "25";
 		pBuffer->pData_ = new SampleType[size];
-		KALDI_LOG << "26";
+
 		for (int i = 0; i < size; ++i)
 			pBuffer->pData_[i] = pData[i];
 	  
