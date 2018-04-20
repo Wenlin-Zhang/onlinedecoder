@@ -11,7 +11,7 @@ enum DecoderSignal {
 };
 
 // callback function type definitions
-typedef void(*DecoderSignalCallback)(const char* pszResults);
+typedef void(*DecoderSignalCallback)(int id, const char* pszResults);
 
 // return flag, if you get an ERROR_XXXX return status, 
 // you can get more information by calling GetLastErrMsg.
