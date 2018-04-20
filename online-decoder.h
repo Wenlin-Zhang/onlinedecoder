@@ -196,7 +196,7 @@ public:
 		State_EndDecoding
 	};
 	
-	explicit OnlineDecoder(const string& configFilePath);
+	explicit OnlineDecoder(int id, const string& configFilePath);
 	~OnlineDecoder();
 	
 	// TODO: load settings from config file
@@ -255,6 +255,7 @@ protected:
 	std::string FullFinalResult2Json(const FullFinalResult &full_final_result);
 	
 protected:
+	int id_;
 	/*bool silent_;
 	bool do_endpointing_;
 	bool inverse_scale_;
