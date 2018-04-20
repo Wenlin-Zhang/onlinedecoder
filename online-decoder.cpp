@@ -7,9 +7,9 @@
 using namespace kaldi;
 // load settings from config file
 // Reference: gst_kaldinnet2onlinedecoder_init
-OnlineDecoder::OnlineDecoder(const string& configFilePath)
+OnlineDecoder::OnlineDecoder(int id, const string& configFilePath)
 {
-	
+	id_ = id;
 	this->trans_model_ = NULL;
 	this->am_nnet3_ = NULL;
 	this->decode_fst_ = NULL;
@@ -303,7 +303,7 @@ void OnlineDecoder::InvokeCallBack(DecoderSignal signal, const char* pszResults)
 {
 	KALDI_ASSERT(this->onDecoderSignalCallbacks_.find(signal) != this->onDecoderSignalCallbacks_.end());
 	for(int32 i = 0; i < this->onDecoderSignalCallbacks_[signal].size(); ++ i)
-		this->onDecoderSignalCallbacks_[signal][i](pszResults);
+		this->onDecoderSignalCallbacks_[signal][i](id_, pszResults);
 }
 
 // Get phone alignment from the compact lattice
