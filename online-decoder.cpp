@@ -4,6 +4,8 @@
 
 #include <jansson.h>
 
+clock_t start_ss;
+std::vector<int32> silence_phones;
 using namespace kaldi;
 // load settings from config file
 // Reference: gst_kaldinnet2onlinedecoder_init
@@ -28,8 +30,6 @@ OnlineDecoder::OnlineDecoder(int id, const string& configFilePath)
   this->opts_ = new OnlineDecoderOptions();
 	this->endpoint_config_ = new OnlineEndpointConfig();
 	this->feature_config_ = new OnlineNnet2FeaturePipelineConfig();
-	//this->nnet2_decoding_config_ = new OnlineNnet2DecodingConfig();
-	//this->nnet2_decoding_threaded_config_ = new OnlineNnet2DecodingThreadedConfig();
 	this->nnet3_decodable_opts_ = new nnet3::NnetSimpleLoopedComputationOptions();
 	this->decoder_opts_ = new LatticeFasterDecoderConfig();
 	this->silence_weighting_config_ = new OnlineSilenceWeightingConfig();
@@ -54,6 +54,15 @@ OnlineDecoder::OnlineDecoder(int id, const string& configFilePath)
 	
 	po.ReadConfigFile(configFilePath);
 
+  if (!SplitStringToIntegers(this->endpoint_config_->silence_phones, ":", false, &silence_phones))
+    KALDI_ERR << "Bad --silence-phones option in endpointing config: "
+              << this->endpoint_config_->silence_phones;
+  std::sort(silence_phones.begin(), silence_phones.end());
+  KALDI_ASSERT(IsSortedAndUniq(silence_phones) &&
+               "Duplicates in --silence-phones option in endpointing config");
+  KALDI_ASSERT(!silence_phones.empty() &&
+               "Endpointing requires nonempty --endpoint.silence-phones option");
+               
 	// load models from files
 	this->LoadModel();
 
@@ -62,7 +71,7 @@ OnlineDecoder::OnlineDecoder(int id, const string& configFilePath)
 
 // Reference: gst_kaldinnet2onlinedecoder_allocate
 bool OnlineDecoder::LoadModel() {
-	KALDI_LOG << "Loading Kaldi models and feature extractor";
+	KALDI_VLOG(2) << "Loading Kaldi models and feature extractor";
 
 	if (!this->audio_source_) {
 		this->audio_source_ = new AudioBufferSource();
@@ -72,7 +81,7 @@ bool OnlineDecoder::LoadModel() {
 		this->feature_info_ = new OnlineNnet2FeaturePipelineInfo(*(this->feature_config_));
 	}
 
-	this->sample_rate_ = (int) this->feature_info_->mfcc_opts.frame_opts.samp_freq;
+	this->sample_rate_ = (int) this->opts_->real_sample_rate_;
   
 	if (!this->adaptation_state_) {
 		this->adaptation_state_ = new OnlineIvectorExtractorAdaptationState(
@@ -314,12 +323,12 @@ std::vector<PhoneAlignmentInfo> OnlineDecoder::GetPhoneAlignment(
 	const CompactLattice &clat) 
 {
 	std::vector<PhoneAlignmentInfo> result;
-	KALDI_LOG << "Phoneme alignment...";
+	KALDI_VLOG(2) << "Phoneme alignment...";
 	
 	// Output the alignment with the weights
 	std::vector<std::vector<int32> > split;
 	SplitToPhones((*this->trans_model_), alignment, &split);
-	KALDI_LOG << "Split to phones finished";
+	KALDI_VLOG(2) << "Split to phones finished";
 
 	std::vector<int32> phones;
 	for (size_t i = 0; i < split.size(); i++) {
@@ -416,9 +425,9 @@ std::string OnlineDecoder::Words2String(const std::vector<int32> &words) {
 		std::string s = this->word_syms_->Find(words[i]);
 		if (s == "")
 			KALDI_ERR << "Word-id " << words[i] << " not in symbol table.";
-		if (i > 0) {
+		/*if (i > 0) {
 			sentence << " ";
-		}
+		}*/
 		sentence << s;
 	}
 	return sentence.str();
@@ -433,6 +442,56 @@ std::string OnlineDecoder::WordsInHyp2String(const std::vector<WordInHypothesis>
 	return this->Words2String(word_ids);
 }
 
+std::string OnlineDecoder::WordsInHyp2String(const std::vector<PhoneAlignmentInfo> &phone_alignment, 
+	                              const std::vector<WordAlignmentInfo> &word_alignment) {
+	                                           
+  std::stringstream sentence;
+  
+  BaseFloat frame_shift = this->feature_info_->FrameShiftInSeconds();
+  frame_shift *= this->nnet3_decodable_opts_->frame_subsampling_factor;
+  std::vector<float> punc_time;
+  std::vector<int> punc_type; // 1: 2:
+  for (size_t j = 1; j < phone_alignment.size(); j++) {
+	  PhoneAlignmentInfo alignment_info = phone_alignment[j];
+	  if (alignment_info.phone_id >= silence_phones.front() && alignment_info.phone_id <= silence_phones.back()) {
+	    if (alignment_info.length_in_frames * frame_shift > opts_->punc_time1_) {
+	      punc_type.push_back(1);
+	      punc_time.push_back(alignment_info.start_frame * frame_shift);
+	    } else if (alignment_info.length_in_frames * frame_shift > opts_->punc_time2_) {
+	      punc_type.push_back(2);
+	      punc_time.push_back(alignment_info.start_frame * frame_shift);
+	    }
+	  }
+  }
+  
+  size_t num_punc = punc_type.size();
+  size_t idx = 0;
+  int last_idx = 0;
+  for (size_t j = 0; j < word_alignment.size(); j++) {
+	  WordAlignmentInfo alignment_info = word_alignment[j];
+	  std::string word = this->word_syms_->Find(alignment_info.word_id);
+    
+    sentence << word;
+    
+	  float word_ended_time = (alignment_info.start_frame + alignment_info.length_in_frames) * frame_shift;
+	  if (idx < num_punc) {
+	    if (word_ended_time >= punc_time[idx]) {
+	      if (punc_type[idx] == 1) {
+	        sentence << "。";
+	      } else if (punc_type[idx] == 2) {
+	        sentence << "，";
+	      }
+	      idx++;
+	      last_idx = j;
+	    }
+	  }
+  }
+  
+  if (word_alignment.size() > 0 && last_idx < word_alignment.size() - 1) {
+    sentence << "。";
+  }
+  return sentence.str();
+}
 // Reference: gst_kaldinnet2onlinedecoder_nbest_results
 std::vector<NBestResult> OnlineDecoder::GetNbestResults(CompactLattice &clat) {
 
@@ -490,7 +549,6 @@ std::string OnlineDecoder::FullFinalResult2Json(
 
 	json_t *root = json_object();
 	json_t *result_json_object = json_object();
-	//json_object_set_new( root, "status", json_integer(0));
 	json_object_set_new(root, "speaker", json_string(full_final_result.spkr.c_str()));
 	json_object_set_new( root, "result", result_json_object);
 	json_object_set_new( result_json_object, "final", json_true());
@@ -510,49 +568,48 @@ std::string OnlineDecoder::FullFinalResult2Json(
 								json_string(this->WordsInHyp2String(nbest_result.words).c_str()));
 			json_object_set_new(nbest_result_json_object, "likelihood",  json_real(nbest_result.likelihood));
 			json_array_append( nbest_json_arr, nbest_result_json_object );
-			/*if (nbest_result.phone_alignment.size() > 0) {
-				if (strcmp(this->opts_->phone_syms_filename_.c_str(), "") == 0) {
-					KALDI_ERR << "Phoneme symbol table filename (phone-syms) must be set to output phone alignment.";
-				} else if (this->phone_syms_ == NULL) {
-					KALDI_ERR << "Phoneme symbol table wasn't loaded correctly. Not outputting alignment.";
-				} else {
-					json_t *phone_alignment_json_arr = json_array();
-					for (size_t j = 0; j < nbest_result.phone_alignment.size(); j++) {
-						PhoneAlignmentInfo alignment_info = nbest_result.phone_alignment[j];
-						json_t *alignment_info_json_object = json_object();
-						std::string phone = this->phone_syms_->Find(alignment_info.phone_id);
-						json_object_set_new(alignment_info_json_object, "phone",
-											json_string(phone.c_str()));
-						json_object_set_new(alignment_info_json_object, "start",
-											json_real(alignment_info.start_frame * frame_shift));
-						json_object_set_new(alignment_info_json_object, "length",
-											json_real(alignment_info.length_in_frames * frame_shift));
-						json_object_set_new(alignment_info_json_object, "confidence",
-											json_real(alignment_info.confidence));
-						json_array_append(phone_alignment_json_arr, alignment_info_json_object);
-					}
-					json_object_set_new(nbest_result_json_object, "phone-alignment", phone_alignment_json_arr);
-				}
-			}
-			if (nbest_result.word_alignment.size() > 0) {
-				json_t *word_alignment_json_arr = json_array();
-				for (size_t j = 0; j < nbest_result.word_alignment.size(); j++) {
-					WordAlignmentInfo alignment_info = nbest_result.word_alignment[j];
-					json_t *alignment_info_json_object = json_object();
-					std::string word = this->word_syms_->Find(alignment_info.word_id);
-					json_object_set_new(alignment_info_json_object, "word",
-										json_string(word.c_str()));
-					json_object_set_new(alignment_info_json_object, "start",
-										json_real(alignment_info.start_frame * frame_shift));
-					json_object_set_new(alignment_info_json_object, "length",
-										json_real(alignment_info.length_in_frames * frame_shift));
-					json_object_set_new(alignment_info_json_object, "confidence",
-										json_real(alignment_info.confidence));
-					json_array_append(word_alignment_json_arr, alignment_info_json_object);
-				}
-				json_object_set_new(nbest_result_json_object, "word-alignment", word_alignment_json_arr);
-			}*/
-
+		  if (nbest_result.phone_alignment.size() > 0) {
+			  if (strcmp(this->opts_->phone_syms_filename_.c_str(), "") == 0) {
+				  KALDI_ERR << "Phoneme symbol table filename (phone-syms) must be set to output phone alignment.";
+			  } else if (this->phone_syms_ == NULL) {
+				  KALDI_ERR << "Phoneme symbol table wasn't loaded correctly. Not outputting alignment.";
+			  } else {
+				  json_t *phone_alignment_json_arr = json_array();
+				  for (size_t j = 0; j < nbest_result.phone_alignment.size(); j++) {
+					  PhoneAlignmentInfo alignment_info = nbest_result.phone_alignment[j];
+					  json_t *alignment_info_json_object = json_object();
+					  std::string phone = this->phone_syms_->Find(alignment_info.phone_id);
+					  json_object_set_new(alignment_info_json_object, "phone",
+										  json_string(phone.c_str()));
+					  json_object_set_new(alignment_info_json_object, "start",
+										  json_real(alignment_info.start_frame * frame_shift));
+					  json_object_set_new(alignment_info_json_object, "length",
+										  json_real(alignment_info.length_in_frames * frame_shift));
+					  json_object_set_new(alignment_info_json_object, "confidence",
+										  json_real(alignment_info.confidence));
+					  json_array_append(phone_alignment_json_arr, alignment_info_json_object);
+				  }
+				  json_object_set_new(nbest_result_json_object, "phone-alignment", phone_alignment_json_arr);
+			  }
+		  }
+		  if (nbest_result.word_alignment.size() > 0) {
+			  json_t *word_alignment_json_arr = json_array();
+			  for (size_t j = 0; j < nbest_result.word_alignment.size(); j++) {
+				  WordAlignmentInfo alignment_info = nbest_result.word_alignment[j];
+				  json_t *alignment_info_json_object = json_object();
+				  std::string word = this->word_syms_->Find(alignment_info.word_id);
+				  json_object_set_new(alignment_info_json_object, "word",
+									  json_string(word.c_str()));
+				  json_object_set_new(alignment_info_json_object, "start",
+									  json_real(alignment_info.start_frame * frame_shift));
+				  json_object_set_new(alignment_info_json_object, "length",
+									  json_real(alignment_info.length_in_frames * frame_shift));
+				  json_object_set_new(alignment_info_json_object, "confidence",
+									  json_real(alignment_info.confidence));
+				  json_array_append(word_alignment_json_arr, alignment_info_json_object);
+			  }
+			  json_object_set_new(nbest_result_json_object, "word-alignment", word_alignment_json_arr);
+		  }
 		}
 
 		json_object_set_new(result_json_object, "hypotheses", nbest_json_arr);
@@ -577,17 +634,18 @@ void OnlineDecoder::GenerateFinalResult(
 	this->ScaleLattice(clat);
 
 	FullFinalResult full_final_result;
-	KALDI_LOG << "Decoding n-best results";
+	KALDI_VLOG(2) << "Decoding n-best results";
 	full_final_result.spkr = spkr;
 	full_final_result.nbest_results = this->GetNbestResults(clat);
 
 	if (full_final_result.nbest_results.size() > 0) {
-		std::string best_transcript = this->WordsInHyp2String(full_final_result.nbest_results[0].words);
-
-		KALDI_LOG << "Likelihood per frame is "
+		//std::string best_transcript = this->WordsInHyp2String(full_final_result.nbest_results[0].words);
+    std::string best_transcript = this->WordsInHyp2String(full_final_result.nbest_results[0].phone_alignment,
+                                                          full_final_result.nbest_results[0].word_alignment);
+		KALDI_VLOG(2) << "Likelihood per frame is "
 				  << full_final_result.nbest_results[0].likelihood/full_final_result.nbest_results[0].num_frames
 				  << " over " << full_final_result.nbest_results[0].num_frames << " %d frames";
-		KALDI_LOG << "Final: " <<  best_transcript.c_str();
+		KALDI_VLOG(2) << "Final: " <<  best_transcript.c_str();
 		int32 hyp_length = best_transcript.length();
 		*num_words = full_final_result.nbest_results[0].words.size();
 
@@ -596,7 +654,7 @@ void OnlineDecoder::GenerateFinalResult(
 			this->InvokeCallBack(FINAL_RESULT_SIGNAL, best_transcript.c_str());
 			// Invoke the FULL_FINAL_RESULT_SIGNAL
 			std::string full_final_result_as_json =	this->FullFinalResult2Json(full_final_result);
-			KALDI_LOG << "Final JSON: " << full_final_result_as_json.c_str();
+			KALDI_VLOG(2) << "Final JSON: " << full_final_result_as_json.c_str();
 			this->InvokeCallBack(FULL_FINAL_RESULT_SIGNAL, full_final_result_as_json.c_str());
 		}
 	}
@@ -609,10 +667,10 @@ void OnlineDecoder::GeneratePartialResult(const Lattice lat) {
 	LatticeWeight weight;
 	GetLinearSymbolSequence(lat, &alignment, &words, &weight);
 	std::string transcript = this->Words2String(words);
-	KALDI_LOG << "Partial: " << transcript.c_str();
+	KALDI_VLOG(2) << "Partial: " << transcript.c_str();
 	if (transcript.length() > 0) {
 		// Invoke the PARTIAL_RESULT_SIGNAL signal
-		this->InvokeCallBack(PARTIAL_RESULT_SIGNAL, transcript.c_str());
+		this->InvokeCallBack(PARTIAL_RESULT_SIGNAL, transcript.c_str()); 
 	}
 }
 
@@ -630,19 +688,17 @@ void OnlineDecoder::DecodeSegment(AudioState &audio_state, int32 chunk_length, B
                                       *(this->decodable_info_nnet3_),
                                       *(this->decode_fst_),
                                       &feature_pipeline);
- 
 
   Vector<BaseFloat> wave_part(chunk_length);
   std::vector<std::pair<int32, BaseFloat> > delta_weights;
-  KALDI_LOG << "Reading audio in " << wave_part.Dim() << " sample chunks...";
+  KALDI_VLOG(2) << "Reading audio in " << wave_part.Dim() << " sample chunks...";
   BaseFloat last_traceback = 0.0;
   BaseFloat num_seconds_decoded = 0.0;
   string spkr;
   while (true) {
 	  audio_state = this->audio_source_->ReadData(&wave_part, spkr);
-
 	  // check if any data is read
-	  if (wave_part.Dim() == 0)
+	  if (spkr.empty())
 	  {
 		  // if no data is read, that audio state should be SpkrEnd or AudioEnd
 		  KALDI_ASSERT(audio_state == AudioState::SpkrEnd || audio_state == AudioState::AudioEnd);
@@ -653,15 +709,22 @@ void OnlineDecoder::DecodeSegment(AudioState &audio_state, int32 chunk_length, B
 		  else
 			  break; // otherwise, exit and end this segment decoding
 	  }
-
+	  // std::cout << "Recieved data, decoding ..." << std::endl;
 	  // if some data is read, proceed to decoding it
-	  feature_pipeline.AcceptWaveform(this->sample_rate_, wave_part);
-    
+	  if (this->sample_rate_ > this->feature_info_->mfcc_opts.frame_opts.samp_freq) {
+	    std::cout << "WARNING: the sample rate of audio is not match that of models, " 
+	      << "downsample will take lots of time." << std::endl;
+	    Vector<BaseFloat> downsampled_wave(wave_part);
+      DownsampleWaveForm(this->sample_rate_, wave_part,
+                         this->feature_info_->mfcc_opts.frame_opts.samp_freq, &downsampled_wave);
+      feature_pipeline.AcceptWaveform(this->feature_info_->mfcc_opts.frame_opts.samp_freq, downsampled_wave);
+    } else {
+      feature_pipeline.AcceptWaveform(this->sample_rate_, wave_part);
+    }
 	  // if the audio state is SpkrEnd or AudioEnd, it means an end of the current segment, so let's finish feature input
     if (audio_state == AudioState::SpkrEnd || audio_state == AudioState::AudioEnd) {
       feature_pipeline.InputFinished();
     }
-
     if (silence_weighting.Active() && 
         feature_pipeline.IvectorFeature() != NULL) {
       silence_weighting.ComputeCurrentTraceback(decoder.Decoder());
@@ -669,50 +732,52 @@ void OnlineDecoder::DecodeSegment(AudioState &audio_state, int32 chunk_length, B
                                         &delta_weights);
       feature_pipeline.IvectorFeature()->UpdateFrameWeights(delta_weights);
     }
-
     decoder.AdvanceDecoding();
-    KALDI_LOG <<  decoder.NumFramesDecoded() << " frames decoded";
+    KALDI_VLOG(2) <<  decoder.NumFramesDecoded() << " frames decoded";
 	  BaseFloat num_seconds = (BaseFloat) wave_part.Dim() / this->sample_rate_;
     num_seconds_decoded += num_seconds;
     this->total_time_decoded_ += num_seconds;
-    KALDI_LOG << "Total amount of audio processed: " << this->total_time_decoded_ << " seconds";
+    KALDI_VLOG(2) << "Total amount of audio processed: " << this->total_time_decoded_ << " seconds";
 
 	  // if this is the end of a speaker or audio, exit decoding current segment
     if (audio_state == AudioState::SpkrEnd) {
-		  KALDI_LOG << "Speaker change detected!";
+		  KALDI_VLOG(2) << "Speaker change detected!";
       break;
     }
 	  if (audio_state == AudioState::AudioEnd) {
-		  KALDI_LOG << "Audio end detected!";
+		  KALDI_VLOG(2) << "Audio end detected!";
 		  break;
 	  }
 	  // if an end pointing is detected, also exit decoding current segment
     if (this->opts_->do_endpointing_
         && (decoder.NumFramesDecoded() > 0)
         && decoder.EndpointDetected(*(this->endpoint_config_))) {
-      KALDI_LOG << "Endpoint detected!";
+      KALDI_VLOG(2) << "Endpoint detected!";
+      //std::cout << this->total_time_decoded_ << std::endl;
       break;
     }
-
 	  // generate partial result every traceback_period_secs
     if ((num_seconds_decoded - last_traceback > traceback_period_secs)
         && (decoder.NumFramesDecoded() > 0)) {
-      Lattice lat;
-      decoder.GetBestPath(false, &lat);
-      this->GeneratePartialResult(lat);
+      if (opts_->do_partial_) {
+        Lattice lat;
+        decoder.GetBestPath(false, &lat);
+        this->GeneratePartialResult(lat);
+      }
       last_traceback += traceback_period_secs;
+      
+      //clock_t ended_s = clock();
+      //std::cout << float (ended_s - start_ss) / CLOCKS_PER_SEC - this->total_time_decoded_ << std::endl;
     }
-
   }
-  
   // generate final results
   if (num_seconds_decoded > 0.1) {
-    KALDI_LOG << "Getting lattice..";
+    KALDI_VLOG(2) << "Getting lattice..";
     decoder.FinalizeDecoding();
     CompactLattice clat;
     bool end_of_utterance = true;
     decoder.GetLattice(end_of_utterance, &clat);
-    KALDI_LOG << "Lattice done";
+    KALDI_VLOG(2) << "Lattice done";
 
     int32 num_words = 0;
     this->GenerateFinalResult(clat, &num_words, spkr);
@@ -721,9 +786,8 @@ void OnlineDecoder::DecodeSegment(AudioState &audio_state, int32 chunk_length, B
       feature_pipeline.GetAdaptationState(this->adaptation_state_);
     }
   } else {
-    KALDI_LOG << "Less than 0.1 seconds decoded, discarding ...";
+    KALDI_VLOG(2) << "Less than 0.1 seconds decoded, discarding ...";
   }
-
 }
 
 void OnlineDecoder::ChangeState(DecoderState newState)
@@ -764,14 +828,14 @@ void OnlineDecoder::StartDecoding()
 
 void OnlineDecoder::SuspendDecoding() {
 	// set the audio source to ended to stop receive more data
-	KALDI_LOG << "Suspend Processing";
+	KALDI_VLOG(2) << "Suspend Processing";
 	this->audio_source_->SetEnded(true);
 	this->ChangeState(DecoderState::State_SuspendDecoding);
 }
 
 void OnlineDecoder::ResumeDecoding() {
 	// set the audio source to start receive more data
-	KALDI_LOG << "Resume Processing";
+	KALDI_VLOG(2) << "Resume Processing";
 	this->audio_source_->SetEnded(false);
 	this->ChangeState(DecoderState::State_OnDecoding);
 }
@@ -794,7 +858,8 @@ void OnlineDecoder::WaitForEndOfDecoding()
 
 // reference: gst_kaldinnet2onlinedecoder_loop
 void OnlineDecoder::DecodeLoop() {
-	KALDI_LOG << "Starting decoding loop..";
+  start_ss = clock();
+	KALDI_VLOG(2) << "Starting decoding loop..";
 	BaseFloat traceback_period_secs = this->opts_->traceback_period_in_secs_;
 	int32 chunk_length = int32(this->sample_rate_ * this->opts_->chunk_length_in_secs_);
 
@@ -805,13 +870,15 @@ void OnlineDecoder::DecodeLoop() {
 	AudioState audio_state = AudioState::SpkrContinue;
 	while (true) {
 		// check state for stop and suspend
+		if (state_ == DecoderState::State_StopDecoding || 
+		    state_ == DecoderState::State_SuspendDecoding)
 		{
 			std::unique_lock<std::mutex> state_locker(state_mtx_);
 			if (state_ == DecoderState::State_StopDecoding)
 				break;
 			if (state_ == DecoderState::State_SuspendDecoding)
 			{
-			  KALDI_LOG << "Suspend Recognizer";
+			  KALDI_VLOG(2) << "Suspend Recognizer";
 				// unlock the state locker to allow change decode state while processin remaining data
 				state_locker.unlock();
 				// Process remaining data in the audio buffer
@@ -823,14 +890,15 @@ void OnlineDecoder::DecodeLoop() {
 				state_locker.lock();
 				
 				// wait for suspend state to change
-				KALDI_LOG << "Waiting State Change";
+				KALDI_VLOG(2) << "Waiting State Change";
 				state_cond_.wait(state_locker, [this] {return this->state_ != DecoderState::State_SuspendDecoding; });
-				KALDI_LOG << "State Changed";
+				KALDI_VLOG(2) << "State Changed";
 				// if changed to stop state, then stop decoding
 				if (state_ == DecoderState::State_StopDecoding)
 					break;
 			}
 		}
+		
 	  this->DecodeSegment(audio_state, chunk_length, traceback_period_secs);
 	  this->segment_start_time_ = this->total_time_decoded_;
 	}
@@ -842,13 +910,9 @@ void OnlineDecoder::DecodeLoop() {
 		this->segment_start_time_ = this->total_time_decoded_;
 	}
 
-	KALDI_LOG << "Finished decoding loop";
-	KALDI_LOG << "Pushing EOS event";
+	KALDI_VLOG(2) << "Finished decoding loop";
+	KALDI_VLOG(2) << "Pushing EOS event";
 	this->InvokeCallBack(EOS_SIGNAL, NULL);
-
-	// reset the audio source
-	// delete this->audio_source_;
-	// this->audio_source_ = new AudioBufferSource();
 }
 
 // Reference: gst_kaldinnet2onlinedecoder_finalize
@@ -856,7 +920,6 @@ OnlineDecoder::~OnlineDecoder() {
 	KALDI_ASSERT(state_ == DecoderState::State_InitDecoding || DecoderState::State_EndDecoding);
 	delete this->endpoint_config_;
 	delete this->feature_config_;
-	//delete this->nnet2_decoding_config_;
 	delete this->nnet3_decodable_opts_;
 	delete this->decoder_opts_;
 	delete this->silence_weighting_config_;

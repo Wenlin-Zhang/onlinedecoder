@@ -44,4 +44,6 @@ ReturnStatus AddBuffer(int engineID, const char* spkId, const short* pData, int 
 
 ReturnStatus AddCallback(int engineID, DecoderSignal signal, DecoderSignalCallback callback);
 
+ReturnStatus ChangePartialStatus(int engineID);
+
 #endif

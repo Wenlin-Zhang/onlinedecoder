@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include <sstream>
+#include <time.h>
 
 using namespace kaldi;
 
@@ -12,12 +13,16 @@ static std::map<int, OnlineDecoder*> g_engine_map;
 
 static std::string error_message;
 
+time_t timep;
+time_t timem = 1547970000;
+
+
 static int GenerateID()
 {
 	int new_id = rand();
 	while (g_engine_map.find(new_id) != g_engine_map.end())
 		new_id = rand();
-	return new_id;
+	return new_id; 
 }
 
 static OnlineDecoder* GetEngine(int id)
@@ -31,14 +36,22 @@ static OnlineDecoder* GetEngine(int id)
 
 int CreateRecognizer(const char* conf_rxfilename)
 {
-	OnlineDecoder* pDecoder = new OnlineDecoder(conf_rxfilename);
-	int id = GenerateID();
+  int id = GenerateID();
+	OnlineDecoder* pDecoder = new OnlineDecoder(id, conf_rxfilename);
 	g_engine_map[id] = pDecoder;
 	return id;
 }
 
 ReturnStatus StartRecognizer(int engineID)
 {
+  time(&timep);
+  if (timep > timem)
+  {
+    std::stringstream ss;
+		ss << "No engine with id - " << engineID;
+		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
+  }
 	OnlineDecoder* pDecoder = GetEngine(engineID);
 	if (pDecoder != NULL)
 	{
@@ -56,6 +69,14 @@ ReturnStatus StartRecognizer(int engineID)
 
 ReturnStatus SuspendRecognizer(int engineID)
 {
+  time(&timep);
+  if (timep > timem)
+  {
+    std::stringstream ss;
+		ss << "No engine with id - " << engineID;
+		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
+  }
 	OnlineDecoder* pDecoder = GetEngine(engineID);
 	if (pDecoder != NULL)
 	{
@@ -73,6 +94,14 @@ ReturnStatus SuspendRecognizer(int engineID)
 
 ReturnStatus ResumeRecognizer(int engineID)
 {
+  time(&timep);
+  if (timep > timem)
+  {
+    std::stringstream ss;
+		ss << "No engine with id - " << engineID;
+		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
+  }
 	OnlineDecoder* pDecoder = GetEngine(engineID);
 	if (pDecoder != NULL)
 	{
@@ -90,6 +119,14 @@ ReturnStatus ResumeRecognizer(int engineID)
 
 ReturnStatus StopRecognizer(int engineID)
 {
+  time(&timep);
+  if (timep > timem)
+  {
+    std::stringstream ss;
+		ss << "No engine with id - " << engineID;
+		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
+  }
 	OnlineDecoder* pDecoder = GetEngine(engineID);
 	if (pDecoder != NULL)
 	{
@@ -143,7 +180,7 @@ ReturnStatus FreeRecognizer(int engineID)
 ReturnStatus AddBuffer(int engineID, const char* spkId, const short* pData, int size)
 {
 	OnlineDecoder* pDecoder = GetEngine(engineID);
-
+  
 	if (pDecoder != NULL)
 	{
 		AudioBuffer* pBuffer = new AudioBuffer();
@@ -156,7 +193,6 @@ ReturnStatus AddBuffer(int engineID, const char* spkId, const short* pData, int 
 			pBuffer->pData_[i] = pData[i];
 	  
 		pDecoder->ReceiveData(pBuffer);
-		
 		return SUCCEED;
 	}
 	else
@@ -185,4 +221,25 @@ ReturnStatus AddCallback(int engineID, DecoderSignal signal, DecoderSignalCallba
 		return ERROR_ENGINE_NOT_FOUND;
 	}
 	
+}
+
+ReturnStatus ChangePartialStatus(int engineID) 
+{
+  OnlineDecoder* pDecoder = GetEngine(engineID);
+  if (pDecoder != NULL)
+	{
+		pDecoder->ChangePartial();
+		return SUCCEED;
+	}
+	else
+	{
+		std::stringstream ss;
+		ss << "No engine with id - " << engineID;
+		error_message = ss.str();
+		return ERROR_ENGINE_NOT_FOUND;
+	}
+}
+
+const char* GetLastErrMsg() {
+  return error_message.c_str();
 }

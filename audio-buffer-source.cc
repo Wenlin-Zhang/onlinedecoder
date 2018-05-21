@@ -18,8 +18,9 @@ AudioBuffer* AudioBufferSource::DequeueBuffer()
 {
   // lock the mutex to guard the buffer queue for reading
   std::unique_lock<std::mutex> mtx_locker(buffer_mtx_);
-  if (data_buffer_queue_.empty() && ended_ == true)
+  if (data_buffer_queue_.empty() && ended_ == true) {
 	  return NULL;
+	}
   // wait until there is a buffer available or the queue is ended
   buffer_cond_.wait_for(mtx_locker, std::chrono::seconds(2), [this] {return (!this->data_buffer_queue_.empty() || this->ended_); });
   if (data_buffer_queue_.empty())
@@ -47,10 +48,11 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, std::string& spk
 		  delete cur_buffer_;
 	  }
 	  cur_buffer_ = this->DequeueBuffer();
+	  
 	  if (cur_buffer_ == NULL)
 	  {
 		  // if the returned buffer is empty, which means the audio buffer is ended or the speaker data is ended
-		  data->Resize(0);
+		  //data->Resize(0);
 		  spk = "";
       if (ended_ == true)
 		    return AudioState::AudioEnd;
@@ -70,7 +72,6 @@ AudioState AudioBufferSource::ReadData(Vector<BaseFloat>* data, std::string& spk
 	    }
 	  }
   }
-
   // set the current spkr id
   if (current_spkr == "")
 	  current_spkr = cur_buffer_->spkr_;
@@ -134,10 +135,6 @@ void AudioBufferSource::SetEnded(bool ended) {
 AudioBufferSource::~AudioBufferSource(){
   if (ended_ == false)
 	  SetEnded(true);
-  // if the queue is not empty, give 10 seconds to free
-  // if after 10 seconds the queue is still nonempty, there might be an error occured
-  //if (!data_buffer_queue_.empty())
-  //	  sleep(10);
   if (!cur_buffer_) {
 	  delete cur_buffer_->pData_;
 	  delete cur_buffer_;

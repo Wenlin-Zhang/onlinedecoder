@@ -86,15 +86,19 @@ struct OnlineDecoderOptions {
 	bool do_endpointing_;
 	bool inverse_scale_;
 	bool do_phone_alignment_;
-	bool use_threaded_decoder_;
+	bool do_partial_;
+	// bool use_threaded_decoder_;
 	
 	BaseFloat lmwt_scale_;
 	BaseFloat chunk_length_in_secs_;
 	BaseFloat traceback_period_in_secs_;
+	BaseFloat punc_time1_;
+	BaseFloat punc_time2_;
 
   int32 num_nbest_;
   int32 num_phone_alignment_;
 	int32 min_words_for_ivector_;
+	int32 real_sample_rate_;
   
 	std::string model_rspecifier_;
 	std::string fst_rspecifier_;
@@ -110,10 +114,12 @@ struct OnlineDecoderOptions {
                  do_endpointing_(false),
                  inverse_scale_(false),
                  do_phone_alignment_(false),
-                 use_threaded_decoder_(DEFAULT_USE_THREADED_DECODER),
+                 do_partial_(true),
                  lmwt_scale_(DEFAULT_LMWT_SCALE),
                  chunk_length_in_secs_(DEFAULT_CHUNK_LENGTH_IN_SECS),
                  traceback_period_in_secs_(DEFAULT_TRACEBACK_PERIOD_IN_SECS),
+                 punc_time1_(0.5),
+                 punc_time2_(0.1),
                  num_nbest_(DEFAULT_NUM_NBEST),
                  num_phone_alignment_(DEFAULT_NUM_PHONE_ALIGNMENT),
                  min_words_for_ivector_(DEFAULT_MIN_WORDS_FOR_IVECTOR),
@@ -165,10 +171,6 @@ struct OnlineDecoderOptions {
     opts->Register("word-boundary-file", &word_boundary_info_filename_, 
         "Word-boundary file. Setting this property triggers generating word "
         "alignments in full results");
-
-    opts->Register("use-threaded-decoder", &use_threaded_decoder_, 
-        "Use a decoder that does feature calculation and decoding in separate threads "
-        "(NB! must be set before other properties)");
                 
     opts->Register("num-nbest", &num_nbest_, "number of hypotheses in the full final results");
     
@@ -179,6 +181,15 @@ struct OnlineDecoderOptions {
         "threshold for updating ivector (adaptation state). "
         "Minimal number of words in the first transcription for triggering "
         "update of the adaptation state");
+        
+    opts->Register("real-sample-rate", &real_sample_rate_, "the sample rate of test audio.");
+    
+    opts->Register("punctuation-insert-time1", &punc_time1_, "the silence duration to insert a period.");
+    
+    opts->Register("punctuation-insert-time2", &punc_time2_, "the silence duration to insert a comma.");
+    
+    opts->Register("do-partial-result", &do_partial_, "If false, never return partial result, "
+        "even the callback function of partial signal is set, default true.");
   }
 };
 
@@ -200,7 +211,6 @@ public:
 	~OnlineDecoder();
 	
 	// TODO: load settings from config file
-	//bool LoadConfig(const string& configFilePath);
 	void LoadWordSyms();
 	void LoadPhoneSyms();
 	void LoadWordBoundaryInfo();
@@ -225,6 +235,8 @@ public:
 	void StopDecoding();
 
 	void WaitForEndOfDecoding();
+	
+	void ChangePartial() {opts_->do_partial_ = !opts_->do_partial_;};
 
 protected:
 
@@ -254,34 +266,15 @@ protected:
 	std::vector<NBestResult> GetNbestResults(CompactLattice &clat);
 	std::string FullFinalResult2Json(const FullFinalResult &full_final_result);
 	
+	std::string WordsInHyp2String(const std::vector<PhoneAlignmentInfo> &phone_alignment, 
+	                              const std::vector<WordAlignmentInfo> &word_alignment);
+	
 protected:
-	int id_;
-	/*bool silent_;
-	bool do_endpointing_;
-	bool inverse_scale_;
-	bool use_threaded_decoder_;
-	bool do_phone_alignment_;
-	
-	BaseFloat lmwt_scale_;
-	BaseFloat chunk_length_in_secs_;
-	BaseFloat traceback_period_in_secs_;
-
-  int32 num_nbest_;
-  int32 num_phone_alignment_;
-	int32 min_words_for_ivector_;
-	
-	std::string model_rspecifier_;
-	std::string fst_rspecifier_;
-	std::string word_syms_filename_;
-	std::string phone_syms_filename_;
-	std::string word_boundary_info_filename_;*/
-
+  int id_;
 	OnlineDecoderOptions *opts_;
 	
 	OnlineEndpointConfig *endpoint_config_;
 	OnlineNnet2FeaturePipelineConfig *feature_config_;
-	//OnlineNnet2DecodingThreadedConfig *nnet2_decoding_threaded_config_;
-	//OnlineNnet2DecodingConfig *nnet2_decoding_config_;
 	
 	// support for nnet3
 	nnet3::NnetSimpleLoopedComputationOptions *nnet3_decodable_opts_;
@@ -311,13 +304,15 @@ protected:
 	
 	float segment_start_time_;
 	float total_time_decoded_;
-	
+  
 	// The following are needed for optional LM rescoring with a "big" LM
 	fst::MapFst<fst::StdArc, LatticeArc, fst::StdToLatticeMapper<BaseFloat> > *lm_fst_;
 	fst::TableComposeCache<fst::Fst<LatticeArc> > *lm_compose_cache_;
 	
 	// callback functions
 	std::map< DecoderSignal, std::vector<DecoderSignalCallback> > onDecoderSignalCallbacks_;
+	
+
 };
 
 }
